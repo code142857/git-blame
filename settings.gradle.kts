@@ -1,10 +1,10 @@
 import org.jetbrains.intellij.platform.gradle.extensions.intellijPlatform
 
-rootProject.name = "IntelliJ Platform Plugin Template"
+rootProject.name = "Git Blame"
 
 pluginManagement {
     plugins {
-        id("org.jetbrains.kotlin.jvm") version "2.1.20"
+        id("org.jetbrains.kotlin.jvm") version "2.3.0"
         id("org.jetbrains.changelog") version "2.5.0"
     }
 }

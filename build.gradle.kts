@@ -11,7 +11,18 @@ dependencies {
 
     // IntelliJ Platform Gradle Plugin Dependencies Extension - read more: https://plugins.jetbrains.com/docs/intellij/tools-intellij-platform-gradle-plugin-dependencies-extension.html
     intellijPlatform {
-        intellijIdea("2025.2.6.2")
+        intellijIdea("2026.1")
         testFramework(TestFrameworkType.Platform)
+    }
+}
+
+tasks {
+    runIde {
+        jvmArgs(
+            "-XX:+AllowEnhancedClassRedefinition",
+            "-javaagent:/Users/bug/java/ja-netfilter/ja-netfilter.jar",
+            "--add-opens=java.base/jdk.internal.org.objectweb.asm=ALL-UNNAMED",
+            "--add-opens=java.base/jdk.internal.org.objectweb.asm.tree=ALL-UNNAMED"
+        )
     }
 }
