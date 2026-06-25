@@ -22,7 +22,7 @@ public final class GitBlameSettings implements PersistentStateComponent<GitBlame
 		public boolean showAuthor = true;
 		public boolean showDate = true;
 		public boolean showSubject = true;
-		public String dateFormat = "RELATIVE";
+		public String dateFormat = "ISO_DATETIME_WITH_SECONDS";
 		public String formatTemplate = "";
 	}
 
