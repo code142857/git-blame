@@ -13,10 +13,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- 路线图：设置面板（开关 / 格式 / 字段选择）
-- 路线图：包名从 `org.jetbrains.plugins.template` 重命名为 `com.jiangjinghong.git.blame`
-- 路线图：状态栏显示当前行 commit 完整 hash
-- 路线图：支持 worktree / submodule
+- **设置面板**（Settings → Tools → Git Blame）：总开关、字段 checkbox（author/date/subject）、日期格式下拉（相对时间 / `yyyy-MM-dd` / `yyyy-MM-dd HH:mm`）、自定义格式模板（占位符 `{author}` `{date}` `{subject}`，非空时覆盖 checkbox 组合，`apply` 时校验未知占位符）。
+- **状态栏 widget**：通过 `StatusBarWidgetFactory`（`StatusBarEditorBasedWidgetFactory` + `EditorBasedWidget`）在状态栏显示光标行 commit 的短 hash，悬浮查看完整 40 位 hash + 作者 + 时间 + 摘要；光标移动通过 `EditorEventMulticaster` 的 `CaretListener`（disposable 重载）跟踪。
+- `LineBlameInfo` 新增 `hash` 与 `authorTime` 字段，供状态栏 widget 与设置驱动的日期格式化使用。
+- 纯 JUnit 测试：`InlineBlameFormatterTest`（12 例，覆盖 checkbox 组合 / 模板覆盖 / 截断 / 三种日期格式）、`GitBlameServiceParseTest`（3 例，覆盖增量解析 / commit 复用 / `isHexHash`）。
+
+### Changed
+
+- **包名重命名**：`org.jetbrains.plugins.template` → `com.jiangjinghong.git.blame`，Java 源码迁移至 `src/main/java/com/jiangjinghong/git/blame/`，`plugin.xml` 的 `editor.linePainter` FQN 同步更新。
+- **架构重构**：抽取 project 级 `GitBlameService` 承担 blame 缓存、异步加载与 repo 状态推导；`GitLinePainter` 瘦身为只管 caret 行 + 委托 service。修复了 `EditorLinePainter` 作为 app 级单例导致缓存跨项目共享的潜在 bug。
+- 模型类外移到 `model/` 包：`LineBlameInfo`、`FileBlameData`、`GitRootInfo`、`RepoState`。
+- `InlineBlameFormatter` 改为 settings-aware：新签名 `format(LineBlameInfo, GitBlameSettings)`，日期格式化由 `DateFormatMode` 在读取时计算。
+- `plugin.xml`：替换模板占位 `<description>` 为真实功能描述；新增 `projectService`、`applicationService`、`applicationConfigurable`、`statusBarWidgetFactory` 扩展注册。
+
+### Fixed
+
+- **worktree 支持**：`GitBlameService` 读取 `<gitDir>/commondir` 解析共享 git 目录，ref 与 `packed-refs` 从 common dir 解析（此前 worktree 下 ref 值解析为空，缓存失效键脆弱）。
+- `GitRootInfo` 新增 `commonDir` 字段；`readGitStateKey` 从 per-worktree `gitDir` 读 `HEAD`、从 `commonDir` 解析 ref 值。
+- submodule 路径已由既有 `.git` file → gitdir 解析覆盖，`findGitRoot` 向上查找第一个 `.git` 即停，正确停留在 submodule 根。
+
+### Removed
+
+- 删除空的 `src/main/java/org/` 树与空的 `src/main/resources/messages/` 目录。
+- 删除 `plugin.xml` 中无用的 `<resource-bundle>messages.MyBundle</resource-bundle>` 与注释掉的 `toolWindow`/`postStartupActivity` 行。
 
 ## [2.6.0] - 2026-06-25
 

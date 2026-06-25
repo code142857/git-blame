@@ -18,12 +18,15 @@
     张三, 2024-01-15 10:30 • fix bug
   ```
 
+- **状态栏 hash**：状态栏显示光标行 commit 的短 hash，鼠标悬浮查看完整 40 位 hash + 作者 + 时间 + 摘要。
+- **可配置**：Settings → Tools → Git Blame 提供总开关、字段选择（author/date/subject）、日期格式（相对时间 / `yyyy-MM-dd` / `yyyy-MM-dd HH:mm`）、自定义格式模板（`{author}` `{date}` `{subject}`）。
 - **默认样式**：灰色斜体，与 IDE 主题协调；可通过 `EditorColorsScheme` 自定义 `GITTOOLBOX_INLINE_BLAME` 颜色。
 - **性能优化**：
-  - 文件级 blame 结果缓存，文件未修改且 `HEAD` / ref 未变化时复用。
+  - 文件级 blame 结果缓存（project 级 `GitBlameService`），文件未修改且 `HEAD` / ref 未变化时复用。
   - 异步加载（`executeOnPooledThread`），不阻塞 EDT。
   - 增量解析 `git blame --incremental` 输出，commit 信息按 hash 复用。
   - Dumb Mode（索引重建）下自动暂停。
+- **worktree / submodule**：解析 worktree 的 `commondir` 指针与 submodule 的 `.git` file → gitdir 指针。
 - **零依赖**：直接调用本地 `git` 可执行文件，不依赖 IntelliJ Git4Idea API，兼容所有基于 IntelliJ 平台的 IDE。
 
 ## 兼容性
@@ -72,29 +75,46 @@ cd git-blame
 2. 打开任意已提交过的文件。
 3. 将光标移动到某一行。
 4. 该行末尾会显示：`  作者, 时间 • 提交摘要`。
+5. 状态栏同时显示该行 commit 的短 hash，悬浮查看完整信息。
 
 > 仅在已提交到 git 的行上显示。新文件、未提交的修改行不会显示 blame 信息。
+
+### 配置
+
+`Settings` → `Tools` → `Git Blame`：
+
+- **总开关**：关闭后不显示行内 blame 与状态栏 hash。
+- **字段选择**：勾选要显示的 author / date / subject。
+- **日期格式**：相对时间（"3 days ago"）/ `yyyy-MM-dd` / `yyyy-MM-dd HH:mm`。
+- **格式模板**：非空时覆盖字段选择，支持占位符 `{author}` `{date}` `{subject}`，摘要超 60 字符自动截断。
 
 ## 实现原理
 
 插件核心通过 IntelliJ 平台的 [`EditorLinePainter`](https://plugins.jetbrains.com/docs/intellij/editor-api.html) 扩展点实现：
 
 ```
-src/main/java/org/jetbrains/plugins/template/line/
-├── GitLinePainter.java        # 扩展点实现：决定是否显示、获取 blame、构造 LineExtensionInfo
-└── InlineBlameFormatter.java  # 文本格式化：拼接 "作者, 时间 • 摘要"
+src/main/java/com/jiangjinghong/git/blame/
+├── GitBlameService.java        # project service：blame 缓存、异步加载、repo 状态推导
+├── line/
+│   ├── GitLinePainter.java     # EditorLinePainter 扩展：光标行末尾显示 blame
+│   └── InlineBlameFormatter.java # 文本格式化：settings-aware 拼接
+├── model/                      # LineBlameInfo / FileBlameData / GitRootInfo / RepoState
+├── settings/                   # GitBlameSettings / GitBlameConfigurable / DateFormatMode
+└── widget/                     # GitBlameWidgetFactory / GitBlameWidget（状态栏 hash）
 ```
 
 ### 工作流程
 
 1. IDE 对每个可见行调用 `GitLinePainter#getLineExtensions`。
-2. 判断当前行是否为光标行；不是则直接返回 `null`。
-3. 前置条件检查：非 Dumb Mode、非目录、文件在 git 仓库下。
+2. 检查总开关；判断当前行是否为光标行；不是则直接返回 `null`。
+3. 前置条件检查：非 Dumb Mode、非目录、文件在 git 仓库下（由 `GitBlameService` 承担）。
 4. 查询文件级 blame 缓存：
    - 缓存命中（文件未修改 + `HEAD`/ref 未变化）→ 直接取出该行 `LineBlameInfo`。
    - 缓存未命中 → 调度后台任务执行 `git blame`，解析后写回缓存并触发重绘。
-5. 调用 `InlineBlameFormatter.format()` 拼接文本。
+5. 调用 `InlineBlameFormatter.format(info, GitBlameSettings)` 按 settings 拼接文本。
 6. 以灰色斜体 `TextAttributes` 包装为 `LineExtensionInfo` 返回。
+
+状态栏 widget（`GitBlameWidget`）独立通过 `EditorEventMulticaster` 的 `CaretListener` 跟踪光标移动，从同一 `GitBlameService` 缓存读取 `LineBlameInfo.hash` 渲染短 hash。
 
 ### 调用的 git 命令
 
@@ -125,7 +145,7 @@ git blame --incremental -l -t -w HEAD -- <relative-path>
 | `gradle.properties`    | 插件 `group`、`version`、Gradle 行为开关                       |
 | `settings.gradle.kts`  | Gradle 插件版本、IntelliJ Platform 仓库扩展                      |
 | `build.gradle.kts`     | 目标 IntelliJ 平台版本、依赖、`runIde` 调试参数                  |
-| `src/main/resources/META-INF/plugin.xml` | 插件元数据与 `editor.linePainter` 扩展注册 |
+| `src/main/resources/META-INF/plugin.xml` | 插件元数据与扩展注册（`editor.linePainter`、`statusBarWidgetFactory`、`projectService`、`applicationService`、`applicationConfigurable`） |
 
 ### 预定义 Run/Debug 配置
 
@@ -162,16 +182,17 @@ git blame --incremental -l -t -w HEAD -- <relative-path>
 ## 限制与已知问题
 
 - 仅对 `HEAD` 提交做 blame，不显示 working tree 中未提交修改的来源。
-- 不支持 worktree 子目录的 `.git` 文件指向外部 git dir 之外的边缘场景（已处理常见的 `.git` file -> gitdir 解析）。
-- 包名仍为 `org.jetbrains.plugins.template`（沿用模板），后续版本可能重命名为 `com.jiangjinghong.git.blame`。
-- 无设置面板，颜色通过 IDE 的 Color Scheme 设置项 `GITTOOLBOX_INLINE_BLAME` 调整。
+- 状态栏 widget 在设置切换后不会即时显隐（widget 注册时机由平台决定）；行内 blame 会立即响应。
+- 颜色通过 IDE 的 Color Scheme 设置项 `GITTOOLBOX_INLINE_BLAME` 调整，未注册为可视化颜色设置项。
 
 ## 路线图
 
-- [ ] 设置面板：开关、格式、显示字段选择
-- [ ] 包名重命名
-- [ ] 在状态栏显示当前行 commit 的完整 hash
-- [ ] 支持 worktree / submodule
+- [x] 设置面板：开关、格式、显示字段选择
+- [x] 包名重命名
+- [x] 在状态栏显示当前行 commit 的完整 hash
+- [x] 支持 worktree / submodule
+- [ ] 注册 `GITTOOLBOX_INLINE_BLAME` 为可视化 Color Scheme 项
+- [ ] 设置切换后状态栏 widget 即时显隐
 
 ## 许可证
 

@@ -1,54 +1,42 @@
-package org.jetbrains.plugins.template.line;
+package com.jiangjinghong.git.blame;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.openapi.editor.CaretModel;
-import com.intellij.openapi.editor.Editor;
-import com.intellij.openapi.editor.EditorLinePainter;
-import com.intellij.openapi.editor.LineExtensionInfo;
-import com.intellij.openapi.editor.colors.EditorColorsManager;
-import com.intellij.openapi.editor.colors.EditorColorsScheme;
-import com.intellij.openapi.editor.colors.TextAttributesKey;
-import com.intellij.openapi.editor.markup.TextAttributes;
-import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.TextEditor;
-import com.intellij.openapi.project.DumbService;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.ui.JBColor;
+import com.jiangjinghong.git.blame.line.InlineBlameFormatter;
+import com.jiangjinghong.git.blame.model.FileBlameData;
+import com.jiangjinghong.git.blame.model.GitRootInfo;
+import com.jiangjinghong.git.blame.model.LineBlameInfo;
+import com.jiangjinghong.git.blame.model.RepoState;
+import com.jiangjinghong.git.blame.settings.GitBlameSettings;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.awt.*;
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
-import java.util.*;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * 行内 Git Blame 信息显示
+ * 项目级 blame 服务：持有文件级 blame 缓存、git 仓库状态推导与异步加载逻辑。
  * <p>
- * 参考 GitToolBox 实现，在光标所在行末尾显示 git blame 信息。 通过 EditorLinePainter 扩展点，IDE 会对每个可见行调用
- * getLineExtensions。
- * </p>
- *
- * <p>
- * 实现原理： 1. 检查光标是否在此行（只在光标行显示） 2. 执行 git blame --incremental 获取 blame 数据 3. 解析 author /
- * date / subject 4. 格式化为灰色斜体文本追加在行尾
+ * 抽取自 {@code GitLinePainter}，让缓存正确按 project 隔离，并为状态栏 widget
+ * 提供 blame 数据访问入口。非持久化——随 project 释放。
  * </p>
  */
-public class GitLinePainter extends EditorLinePainter {
+public class GitBlameService {
 
-	private static final Logger LOG = Logger.getInstance(GitLinePainter.class);
-
-	/** 自定义颜色 key */
-	private static final TextAttributesKey INLINE_BLAME_KEY = TextAttributesKey
-		.createTextAttributesKey("GITTOOLBOX_INLINE_BLAME");
+	private static final Logger LOG = Logger.getInstance(GitBlameService.class);
 
 	/** 文件级 git blame 输出缓存: filePath -> FileBlameData */
 	private final Map<String, FileBlameData> fileBlameCache = new ConcurrentHashMap<>();
@@ -57,100 +45,81 @@ public class GitLinePainter extends EditorLinePainter {
 
 	private final Set<String> loadingFiles = ConcurrentHashMap.newKeySet();
 
-	@Override
+	@NotNull
+	public static GitBlameService getInstance(@NotNull Project project) {
+		return project.getService(GitBlameService.class);
+	}
+
+	// ========== 公共 API ==========
+
+	/**
+	 * 返回光标行的格式化 blame 文本（供 {@link com.jiangjinghong.git.blame.line.GitLinePainter} 使用）。
+	 * 缓存未命中时触发异步加载并返回 {@code null}；加载完成后重绘编辑器。
+	 */
 	@Nullable
-	public Collection<LineExtensionInfo> getLineExtensions(@NotNull Project project, @NotNull VirtualFile file,
-			int lineIndex) {
-
-		Editor editor = getCurrentEditor(project, file);
-		if (editor == null) {
+	public String getFormattedBlameLine(@NotNull Project project, @NotNull VirtualFile file, int lineIndex) {
+		FileBlameData fileBlame = getOrComputeFileBlame(project, file);
+		if (fileBlame == null) {
 			return null;
 		}
-		int caretLine = getCaretLine(editor);
-		if (caretLine != lineIndex) {
-			return null; // 非光标行，不显示
-		}
-
-		// 1. 前置条件检查
-		if (!shouldShow(project, file)) {
+		LineBlameInfo info = fileBlame.getLine(lineIndex);
+		if (info == null) {
 			return null;
 		}
+		return InlineBlameFormatter.format(info, GitBlameSettings.getInstance());
+	}
 
-		// 3. 获取 blame 文本
-		String blameText = getBlameText(project, file, lineIndex);
-		if (blameText == null || blameText.isEmpty()) {
+	/**
+	 * 返回光标行的 {@link LineBlameInfo}（含 hash），供状态栏 widget 使用。
+	 * 缓存未命中时触发异步加载并返回 {@code null}。
+	 */
+	@Nullable
+	public LineBlameInfo getBlameInfo(@NotNull Project project, @NotNull VirtualFile file, int lineIndex) {
+		FileBlameData fileBlame = getOrComputeFileBlame(project, file);
+		if (fileBlame == null) {
 			return null;
 		}
+		return fileBlame.getLine(lineIndex);
+	}
 
-		// 4. 构造 LineExtensionInfo（灰色斜体）
-		TextAttributes attrs = getBlameTextAttributes();
-		return Collections.singletonList(new LineExtensionInfo(blameText, attrs));
+	/**
+	 * 设置变更后重绘所有打开的编辑器。格式在读取时计算，无需失效 blame 缓存。
+	 */
+	public void onSettingsChanged() {
+		ApplicationManager.getApplication().invokeLater(() -> {
+			for (Project project : ProjectManager.getInstance().getOpenProjects()) {
+				if (project.isDisposed()) {
+					continue;
+				}
+				FileEditorManager fem = FileEditorManager.getInstance(project);
+				for (var fileEditor : fem.getAllEditors()) {
+					if (fileEditor instanceof TextEditor textEditor) {
+						textEditor.getEditor().getComponent().repaint();
+					}
+				}
+			}
+		});
 	}
 
 	// ========== 条件检查 ==========
 
 	private boolean shouldShow(@NotNull Project project, @NotNull VirtualFile file) {
-		// 不在 Dumb Mode（索引模式）
-		if (DumbService.isDumb(project)) {
+		if (com.intellij.openapi.project.DumbService.isDumb(project)) {
 			return false;
 		}
-		// 只处理文件（排除目录）
 		if (file.isDirectory()) {
 			return false;
 		}
-		// 检查是否在 git 仓库中
-		return isUnderGit(project, file);
-	}
-
-	private boolean isUnderGit(@NotNull Project project, @NotNull VirtualFile file) {
 		return getGitRootInfo(file).isUnderGit();
-	}
-
-	// ========== 编辑器工具 ==========
-
-	@Nullable
-	private Editor getCurrentEditor(@NotNull Project project, @NotNull VirtualFile file) {
-		FileEditorManager fem = FileEditorManager.getInstance(project);
-		for (var fileEditor : fem.getAllEditors(file)) {
-			if (fileEditor instanceof TextEditor textEditor) {
-				return textEditor.getEditor();
-			}
-		}
-		// fallback: selectedTextEditor
-		Editor selected = fem.getSelectedTextEditor();
-		if (selected != null) {
-			VirtualFile selectedFile = FileDocumentManager.getInstance().getFile(selected.getDocument());
-			if (file.equals(selectedFile)) {
-				return selected;
-			}
-		}
-		return null;
-	}
-
-	private int getCaretLine(@NotNull Editor editor) {
-		CaretModel caretModel = editor.getCaretModel();
-		if (caretModel.isUpToDate()) {
-			return caretModel.getLogicalPosition().line;
-		}
-		return -1;
 	}
 
 	// ========== Blame 数据获取 ==========
 
 	@Nullable
-	private String getBlameText(@NotNull Project project, @NotNull VirtualFile file, int lineIndex) {
-		// 获取文件级 blame 数据（带缓存）
-		FileBlameData fileBlame = getOrComputeFileBlame(project, file);
-		if (fileBlame == null) {
+	private FileBlameData getOrComputeFileBlame(@NotNull Project project, @NotNull VirtualFile file) {
+		if (!shouldShow(project, file)) {
 			return null;
 		}
-
-		// 取出该行的 blame 信息并格式化
-		return fileBlame.getFormattedLine(lineIndex);
-	}
-
-	@Nullable
-	private FileBlameData getOrComputeFileBlame(@NotNull Project project, @NotNull VirtualFile file) {
 		RepoState repoState = getRepoState(file);
 		if (repoState == null) {
 			return null;
@@ -159,7 +128,6 @@ public class GitLinePainter extends EditorLinePainter {
 		String filePath = file.getPath();
 		FileBlameData cached = fileBlameCache.get(filePath);
 
-		// 检查缓存是否有效（文件未修改，且 HEAD/ref 未变化）
 		if (cached != null && cached.modificationStamp == file.getModificationStamp()
 				&& cached.repoStateKey.equals(repoState.stateKey)) {
 			return cached;
@@ -215,16 +183,13 @@ public class GitLinePainter extends EditorLinePainter {
 			return FileBlameData.empty(file.getModificationStamp(), repoState.stateKey);
 		}
 
-		// 计算相对路径
 		String relativePath = file.getPath().substring(repoState.gitRootInfo.repoRoot.length() + 1);
 
 		try {
-			// 执行 git blame --incremental -l -t -w HEAD -- <file>
 			ProcessBuilder pb = new ProcessBuilder("git", "blame", "--incremental", "-l", "-t", "-w", "HEAD", "--",
 					relativePath);
 			pb.directory(new File(repoState.gitRootInfo.repoRoot));
 			pb.redirectErrorStream(true);
-			// 设置 UTF-8 编码
 			pb.environment().put("GIT_TERMINAL_PROMPT", "0");
 
 			Process process = pb.start();
@@ -252,33 +217,21 @@ public class GitLinePainter extends EditorLinePainter {
 	}
 
 	/**
-	 * 解析 git blame --incremental 输出
-	 *
-	 * 格式示例: <pre>
-	 * abc123... 1 1 5          ← commit hash, orig line, final line, num lines
-	 * author John Doe          ← 作者
-	 * author-time 1700000000   ← 时间戳
-	 * summary Fix bug          ← 提交摘要
-	 * </pre>
+	 * 解析 {@code git blame --incremental} 输出，填充 {@code blameData}。
+	 * <p>
+	 * 同一个 commit 可能跨多行出现；按 hash 缓存 {@link LineBlameInfo} 复用。
+	 * package-private 以便单测同包访问。
+	 * </p>
 	 */
-	private void parseIncrementalBlame(BufferedReader reader, FileBlameData blameData) throws Exception {
-		// git blame --incremental 输出格式：
-		// 同一个 commit 可能出现多次（每行一条记录），例如：
-		// abc123... 1 1 5 ← commit 行：hash, orig-line, final-line, num-lines
-		// author 张三
-		// author-time 1700000000
-		// summary fix bug
-		// abc123... 5 5 5 ← 同一个 commit，另一行
-		// author 张三
-		// ...
-		// 所以需要缓存已解析的 commit 信息，遇到重复 hash 直接复用
-
+	static void parseIncrementalBlame(@NotNull BufferedReader reader, @NotNull FileBlameData blameData)
+			throws Exception {
 		Map<String, LineBlameInfo> commitCache = new HashMap<>();
 		LineBlameInfo currentInfo = null;
 
 		for (String line = reader.readLine(); line != null; line = reader.readLine()) {
-			if (line.isEmpty())
+			if (line.isEmpty()) {
 				continue;
+			}
 
 			// commit 行: <40-char-hex-hash> <orig-line> <final-line> [<num-lines>]
 			if (line.length() > 41 && line.charAt(40) == ' ' && isHexHash(line.substring(0, 40))) {
@@ -287,39 +240,38 @@ public class GitLinePainter extends EditorLinePainter {
 				int finalLine = Integer.parseInt(parts[2]) - 1; // 转为 0-based
 				int lineCount = parts.length > 3 ? Integer.parseInt(parts[3]) : 1;
 
-				currentInfo = commitCache.computeIfAbsent(hash, ignored -> new LineBlameInfo());
+				currentInfo = commitCache.computeIfAbsent(hash, ignored -> {
+					LineBlameInfo info = new LineBlameInfo();
+					info.hash = hash;
+					return info;
+				});
 				blameData.setLines(finalLine, lineCount, currentInfo);
 			}
 			else if (line.startsWith("author ")) {
-				String author = line.substring(7);
-				// 尝试补全当前 hash 对应的行
 				if (currentInfo != null) {
-					currentInfo.author = author;
+					currentInfo.author = line.substring(7);
 				}
 			}
 			else if (line.startsWith("author-time ")) {
-				long timestamp = Long.parseLong(line.substring(12));
-				String date = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-					.format(java.time.Instant.ofEpochSecond(timestamp).atZone(java.time.ZoneId.systemDefault()));
 				if (currentInfo != null) {
-					currentInfo.date = date;
+					currentInfo.authorTime = Long.parseLong(line.substring(12));
 				}
 			}
 			else if (line.startsWith("summary ")) {
-				String subject = line.substring(8);
 				if (currentInfo != null) {
-					currentInfo.subject = subject;
+					currentInfo.subject = line.substring(8);
 				}
 			}
 		}
 	}
 
 	/**
-	 * 判断字符串是否为40位十六进制 hash
+	 * 判断字符串是否为 40 位十六进制 hash。
 	 */
-	private boolean isHexHash(String s) {
-		if (s.length() != 40)
+	static boolean isHexHash(@NotNull String s) {
+		if (s.length() != 40) {
 			return false;
+		}
 		for (int i = 0; i < 40; i++) {
 			char c = s.charAt(i);
 			if (!((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'))) {
@@ -328,6 +280,8 @@ public class GitLinePainter extends EditorLinePainter {
 		}
 		return true;
 	}
+
+	// ========== Git 仓库状态推导 ==========
 
 	@Nullable
 	private String findGitRoot(String filePath) {
@@ -353,7 +307,8 @@ public class GitLinePainter extends EditorLinePainter {
 			if (gitDir == null) {
 				return GitRootInfo.notUnderGit();
 			}
-			return new GitRootInfo(repoRoot, gitDir);
+			File commonDir = resolveCommonDir(gitDir);
+			return new GitRootInfo(repoRoot, gitDir, commonDir);
 		});
 	}
 
@@ -387,24 +342,58 @@ public class GitLinePainter extends EditorLinePainter {
 		return null;
 	}
 
+	/**
+	 * 解析 worktree 的 common dir。
+	 * <p>
+	 * worktree 的 {@code <gitDir>/commondir} 文件内容为指向主仓库 {@code .git} 的相对路径
+	 * （如 {@code ../..}）。ref 与 packed-refs 存放在 common dir；普通仓库与 submodule
+	 * 没有该文件，回退为 {@code gitDir} 本身。
+	 * </p>
+	 */
+	@NotNull
+	private File resolveCommonDir(@NotNull File gitDir) {
+		File commondirFile = new File(gitDir, "commondir");
+		if (!commondirFile.isFile()) {
+			return gitDir;
+		}
+		try {
+			String text = java.nio.file.Files.readString(commondirFile.toPath(), StandardCharsets.UTF_8).trim();
+			Path path = Path.of(text);
+			if (!path.isAbsolute()) {
+				path = gitDir.toPath().resolve(path).normalize();
+			}
+			File commonDir = path.toFile();
+			if (commonDir.isDirectory()) {
+				return commonDir;
+			}
+		}
+		catch (IOException e) {
+			if (LOG.isDebugEnabled()) {
+				LOG.debug("Failed to resolve common dir for " + gitDir, e);
+			}
+		}
+		return gitDir;
+	}
+
 	@Nullable
 	private RepoState getRepoState(@NotNull VirtualFile file) {
 		GitRootInfo gitRootInfo = getGitRootInfo(file);
 		if (!gitRootInfo.isUnderGit()) {
 			return null;
 		}
-		return new RepoState(gitRootInfo, readGitStateKey(gitRootInfo.gitDir));
+		File commonDir = gitRootInfo.commonDir != null ? gitRootInfo.commonDir : gitRootInfo.gitDir;
+		return new RepoState(gitRootInfo, readGitStateKey(gitRootInfo.gitDir, commonDir));
 	}
 
 	@NotNull
-	private String readGitStateKey(@NotNull File gitDir) {
+	private String readGitStateKey(@NotNull File gitDir, @NotNull File commonDir) {
 		File headFile = new File(gitDir, "HEAD");
 		try {
 			String head = java.nio.file.Files.readString(headFile.toPath(), StandardCharsets.UTF_8).trim();
 			String refPrefix = "ref:";
 			if (head.startsWith(refPrefix)) {
 				String refName = head.substring(refPrefix.length()).trim();
-				String refValue = readRefValue(gitDir, refName);
+				String refValue = readRefValue(commonDir, refName);
 				return head + "@" + refValue;
 			}
 			return head;
@@ -418,13 +407,13 @@ public class GitLinePainter extends EditorLinePainter {
 	}
 
 	@NotNull
-	private String readRefValue(@NotNull File gitDir, @NotNull String refName) throws IOException {
-		File looseRef = new File(gitDir, refName);
+	private String readRefValue(@NotNull File commonDir, @NotNull String refName) throws IOException {
+		File looseRef = new File(commonDir, refName);
 		if (looseRef.isFile()) {
 			return java.nio.file.Files.readString(looseRef.toPath(), StandardCharsets.UTF_8).trim();
 		}
 
-		File packedRefs = new File(gitDir, "packed-refs");
+		File packedRefs = new File(commonDir, "packed-refs");
 		if (packedRefs.isFile()) {
 			String targetSuffix = " " + refName;
 			try (BufferedReader reader = java.nio.file.Files.newBufferedReader(packedRefs.toPath(),
@@ -441,119 +430,4 @@ public class GitLinePainter extends EditorLinePainter {
 		}
 		return "";
 	}
-
-	// ========== 样式 ==========
-
-	@NotNull
-	private TextAttributes getBlameTextAttributes() {
-		EditorColorsScheme scheme = EditorColorsManager.getInstance().getGlobalScheme();
-		TextAttributes attrs = scheme.getAttributes(INLINE_BLAME_KEY);
-		if (attrs != null && attrs.getForegroundColor() != null) {
-			return attrs;
-		}
-		// 默认灰色斜体
-		Color grayColor = JBColor.GRAY;
-		return new TextAttributes(grayColor, null, null, null, Font.ITALIC);
-	}
-
-	// ========== 内部数据结构 ==========
-
-	/**
-	 * 文件级 blame 数据（解析 git blame --incremental 的输出）
-	 */
-	private static class FileBlameData {
-
-		final long modificationStamp;
-
-		final String repoStateKey;
-
-		/** 行号 -> blame 信息 */
-		final Map<Integer, LineBlameInfo> lines = new ConcurrentHashMap<>();
-
-		FileBlameData(long modificationStamp, @NotNull String repoStateKey) {
-			this.modificationStamp = modificationStamp;
-			this.repoStateKey = repoStateKey;
-		}
-
-		static FileBlameData empty(long modificationStamp, @NotNull String repoStateKey) {
-			return new FileBlameData(modificationStamp, repoStateKey);
-		}
-
-		void setLines(int startLine, int lineCount, LineBlameInfo info) {
-			for (int line = startLine; line < startLine + lineCount; line++) {
-				lines.put(line, info);
-			}
-		}
-
-		boolean isEmpty() {
-			return lines.isEmpty();
-		}
-
-		@Nullable
-		String getFormattedLine(int line) {
-			LineBlameInfo info = lines.get(line);
-			if (info == null)
-				return null;
-			return InlineBlameFormatter.format(info.author, info.date, info.subject);
-		}
-
-	}
-
-	/**
-	 * 单行 blame 信息（可变，支持增量填充）
-	 */
-	private static class LineBlameInfo {
-
-		String author;
-
-		String date;
-
-		String subject;
-
-		LineBlameInfo() {
-		}
-
-	}
-
-	private static class GitRootInfo {
-
-		@Nullable
-		final String repoRoot;
-
-		@Nullable
-		final File gitDir;
-
-		GitRootInfo(@NotNull String repoRoot, @NotNull File gitDir) {
-			this.repoRoot = repoRoot;
-			this.gitDir = gitDir;
-		}
-
-		private GitRootInfo() {
-			this.repoRoot = null;
-			this.gitDir = null;
-		}
-
-		static GitRootInfo notUnderGit() {
-			return new GitRootInfo();
-		}
-
-		boolean isUnderGit() {
-			return repoRoot != null && gitDir != null;
-		}
-
-	}
-
-	private static class RepoState {
-
-		final GitRootInfo gitRootInfo;
-
-		final String stateKey;
-
-		RepoState(@NotNull GitRootInfo gitRootInfo, @NotNull String stateKey) {
-			this.gitRootInfo = gitRootInfo;
-			this.stateKey = stateKey;
-		}
-
-	}
-
 }

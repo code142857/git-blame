@@ -4,18 +4,28 @@
     <name>Git Blame</name>
     <vendor>jinghong</vendor>
     <description><![CDATA[
-        <p><b>IntelliJ Platform Plugin Template</b> is a repository that provides a pure template to make it easier to create a new plugin project.</p>
-        <p>The main goal of this template is to speed up the setup phase of plugin development for both new and experienced developers by preconfiguring the project scaffold and CI, linking to the proper documentation pages, and keeping everything organized.</p>
+        <p>在编辑器光标所在行末尾实时显示 Git Blame 信息（作者、时间、提交摘要），并在状态栏显示当前行 commit 的完整 hash。</p>
+        <p>灵感来自 GitToolBox，零依赖直接调用本地 <code>git</code> 可执行文件，兼容所有基于 IntelliJ 平台的 IDE。</p>
+        <ul>
+            <li>行内 blame：仅在光标行末尾追加 <code>作者, 时间 • 提交摘要</code></li>
+            <li>状态栏 hash：显示光标行 commit 的短 hash，悬浮查看完整 hash</li>
+            <li>设置面板：开关、字段选择、日期格式、自定义格式模板</li>
+            <li>性能优化：文件级 blame 缓存、异步加载、增量解析、Dumb Mode 暂停</li>
+            <li>支持 git worktree 与 submodule</li>
+        </ul>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
 
-    <resource-bundle>messages.MyBundle</resource-bundle>
-
     <extensions defaultExtensionNs="com.intellij">
-<!--        <toolWindow factoryClass="org.jetbrains.plugins.template.toolWindow.MyToolWindowFactory" id="MyToolWindow"/>-->
-<!--        <postStartupActivity implementation="org.jetbrains.plugins.template.startup.MyProjectActivity" />-->
-
-        <editor.linePainter implementation="org.jetbrains.plugins.template.line.GitLinePainter"/>
+        <projectService serviceImplementation="com.jiangjinghong.git.blame.GitBlameService"/>
+        <applicationService serviceImplementation="com.jiangjinghong.git.blame.settings.GitBlameSettings"/>
+        <applicationConfigurable parentId="tools"
+                                 instance="com.jiangjinghong.git.blame.settings.GitBlameConfigurable"
+                                 id="com.jiangjinghong.git.blame.settings.GitBlameConfigurable"
+                                 displayName="Git Blame"/>
+        <editor.linePainter implementation="com.jiangjinghong.git.blame.line.GitLinePainter"/>
+        <statusBarWidgetFactory id="GitBlameWidget"
+                                implementation="com.jiangjinghong.git.blame.widget.GitBlameWidgetFactory"/>
     </extensions>
 </idea-plugin>
