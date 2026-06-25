@@ -1,13 +1,6 @@
 # Git Blame
 
-[![JetBrains plugins](https://img.shields.io/jetbrains/plugin/v/me.jinghong.git.svg)](https://plugins.jetbrains.com/plugin/me.jinghong.git)
-[![Version](https://img.shields.io/jetbrains/plugin/coverage/me.jinghong.git.svg)](https://plugins.jetbrains.com/plugin/me.jinghong.git)
-[![Build](https://github.com/JetBrains/intellij-platform-plugin-template/workflows/Build/badge.svg)](https://github.com/JetBrains/intellij-platform-plugin-template/actions)
-
 一个轻量级的 IntelliJ 平台插件，在编辑器光标所在行末尾**实时显示 Git Blame 信息**（作者、时间、提交摘要）。
-
-![Git Blame inline preview](.github/readme/intellij-platform-plugin-template-dark.svg#gh-dark-mode-only)
-![Git Blame inline preview](.github/readme/intellij-platform-plugin-template-light.svg#gh-light-mode-only)
 
 ## 功能特性
 
@@ -28,17 +21,6 @@
   - Dumb Mode（索引重建）下自动暂停。
 - **worktree / submodule**：解析 worktree 的 `commondir` 指针与 submodule 的 `.git` file → gitdir 指针。
 - **零依赖**：直接调用本地 `git` 可执行文件，不依赖 IntelliJ Git4Idea API，兼容所有基于 IntelliJ 平台的 IDE。
-
-## 兼容性
-
-| 项目             | 值                          |
-|----------------|----------------------------|
-| 插件 ID         | `me.jinghong.git`          |
-| Vendor         | jinghong                   |
-| 当前版本         | 2.6.0                       |
-| 目标平台         | IntelliJ IDEA 2026.1+       |
-| 最低 since-build | 由 IntelliJ Platform Gradle Plugin 自动推导 |
-| 系统要求         | 本地已安装 `git` 且项目位于 git 仓库中 |
 
 ## 安装
 
