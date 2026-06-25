@@ -48,7 +48,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 异步加载：blame 计算调度到 `application.executeOnPooledThread`，不阻塞 EDT；完成后 `invokeLater` 触发编辑器重绘。
 - 仓库状态检测：直接读取 `.git/HEAD`、`.git/refs/...` 与 `.git/packed-refs` 推导失效键，不依赖 Git4Idea API。
 - 兼容 worktree 场景的 `.git` file（gitdir 指针）解析。
-- 默认灰色斜体样式，可通过 Editor Color Scheme 的 `GITTOOLBOX_INLINE_BLAME` 自定义。
+- 默认灰色斜体样式，可通过 Editor Color Scheme 的 `GIT_INLINE_BLAME` 自定义。
 - Dumb Mode（索引重建）下自动暂停 blame 渲染。
 
 ### Changed

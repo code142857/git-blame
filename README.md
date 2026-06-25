@@ -4,7 +4,7 @@
 [![Version](https://img.shields.io/jetbrains/plugin/coverage/me.jinghong.git.svg)](https://plugins.jetbrains.com/plugin/me.jinghong.git)
 [![Build](https://github.com/JetBrains/intellij-platform-plugin-template/workflows/Build/badge.svg)](https://github.com/JetBrains/intellij-platform-plugin-template/actions)
 
-一个轻量级的 IntelliJ 平台插件，在编辑器光标所在行末尾**实时显示 Git Blame 信息**（作者、时间、提交摘要），灵感来自 [GitToolBox](https://plugins.jetbrains.com/plugin/7499-gittoolbox)。
+一个轻量级的 IntelliJ 平台插件，在编辑器光标所在行末尾**实时显示 Git Blame 信息**（作者、时间、提交摘要）。
 
 ![Git Blame inline preview](.github/readme/intellij-platform-plugin-template-dark.svg#gh-dark-mode-only)
 ![Git Blame inline preview](.github/readme/intellij-platform-plugin-template-light.svg#gh-light-mode-only)
@@ -20,7 +20,7 @@
 
 - **状态栏 hash**：状态栏显示光标行 commit 的短 hash，鼠标悬浮查看完整 40 位 hash + 作者 + 时间 + 摘要。
 - **可配置**：Settings → Tools → Git Blame 提供总开关、字段选择（author/date/subject）、日期格式（相对时间 / `yyyy-MM-dd` / `yyyy-MM-dd HH:mm`）、自定义格式模板（`{author}` `{date}` `{subject}`）。
-- **默认样式**：灰色斜体，与 IDE 主题协调；可通过 `EditorColorsScheme` 自定义 `GITTOOLBOX_INLINE_BLAME` 颜色。
+- **默认样式**：灰色斜体，与 IDE 主题协调；可通过 `EditorColorsScheme` 自定义 `GIT_INLINE_BLAME` 颜色。
 - **性能优化**：
   - 文件级 blame 结果缓存（project 级 `GitBlameService`），文件未修改且 `HEAD` / ref 未变化时复用。
   - 异步加载（`executeOnPooledThread`），不阻塞 EDT。
@@ -183,7 +183,7 @@ git blame --incremental -l -t -w HEAD -- <relative-path>
 
 - 仅对 `HEAD` 提交做 blame，不显示 working tree 中未提交修改的来源。
 - 状态栏 widget 在设置切换后不会即时显隐（widget 注册时机由平台决定）；行内 blame 会立即响应。
-- 颜色通过 IDE 的 Color Scheme 设置项 `GITTOOLBOX_INLINE_BLAME` 调整，未注册为可视化颜色设置项。
+- 颜色通过 IDE 的 Color Scheme 设置项 `GIT_INLINE_BLAME` 调整，未注册为可视化颜色设置项。
 
 ## 路线图
 
@@ -191,7 +191,7 @@ git blame --incremental -l -t -w HEAD -- <relative-path>
 - [x] 包名重命名
 - [x] 在状态栏显示当前行 commit 的完整 hash
 - [x] 支持 worktree / submodule
-- [ ] 注册 `GITTOOLBOX_INLINE_BLAME` 为可视化 Color Scheme 项
+- [ ] 注册 `GIT_INLINE_BLAME` 为可视化 Color Scheme 项
 - [ ] 设置切换后状态栏 widget 即时显隐
 
 ## 许可证

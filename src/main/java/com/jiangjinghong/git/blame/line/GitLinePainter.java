@@ -33,7 +33,7 @@ import java.util.Collections;
 public class GitLinePainter extends EditorLinePainter {
 
 	private static final TextAttributesKey INLINE_BLAME_KEY = TextAttributesKey
-		.createTextAttributesKey("GITTOOLBOX_INLINE_BLAME");
+		.createTextAttributesKey("GIT_INLINE_BLAME");
 
 	@Override
 	@Nullable

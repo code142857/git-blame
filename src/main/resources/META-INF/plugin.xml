@@ -5,7 +5,7 @@
     <vendor>jinghong</vendor>
     <description><![CDATA[
         <p>在编辑器光标所在行末尾实时显示 Git Blame 信息（作者、时间、提交摘要），并在状态栏显示当前行 commit 的完整 hash。</p>
-        <p>灵感来自 GitToolBox，零依赖直接调用本地 <code>git</code> 可执行文件，兼容所有基于 IntelliJ 平台的 IDE。</p>
+        <p>零依赖直接调用本地 <code>git</code> 可执行文件，兼容所有基于 IntelliJ 平台的 IDE。</p>
         <ul>
             <li>行内 blame：仅在光标行末尾追加 <code>作者, 时间 • 提交摘要</code></li>
             <li>状态栏 hash：显示光标行 commit 的短 hash，悬浮查看完整 hash</li>
