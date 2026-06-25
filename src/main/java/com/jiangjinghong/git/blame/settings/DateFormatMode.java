@@ -17,12 +17,18 @@ public enum DateFormatMode {
 	/** 仅日期 */
 	ISO_DATE("yyyy-MM-dd"),
 	/** 日期 + 时分 */
-	ISO_DATETIME("yyyy-MM-dd HH:mm");
+	ISO_DATETIME("yyyy-MM-dd HH:mm"),
+	/** 日期 + 时分秒 */
+	ISO_DATETIME_WITH_SECONDS("yyyy-MM-dd HH:mm:ss");
 
 	private static final DateTimeFormatter ISO_DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd")
 		.withZone(ZoneId.systemDefault());
 
 	private static final DateTimeFormatter ISO_DATETIME_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+		.withZone(ZoneId.systemDefault());
+
+	private static final DateTimeFormatter ISO_DATETIME_WITH_SECONDS_FMT = DateTimeFormatter
+		.ofPattern("yyyy-MM-dd HH:mm:ss")
 		.withZone(ZoneId.systemDefault());
 
 	private final String displayName;
@@ -49,6 +55,8 @@ public enum DateFormatMode {
 				return ISO_DATE_FMT.format(instant);
 			case ISO_DATETIME:
 				return ISO_DATETIME_FMT.format(instant);
+			case ISO_DATETIME_WITH_SECONDS:
+				return ISO_DATETIME_WITH_SECONDS_FMT.format(instant);
 			default:
 				return ISO_DATETIME_FMT.format(instant);
 		}

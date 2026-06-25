@@ -119,6 +119,16 @@ public class InlineBlameFormatterTest {
 	}
 
 	@Test
+	public void isoDatetimeWithSecondsFormat() {
+		GitBlameSettings s = newSettings(true, false, true, false, DateFormatMode.ISO_DATETIME_WITH_SECONDS, "");
+		LineBlameInfo info = info("aaa", "John", EPOCH, "Fix bug");
+		String out = InlineBlameFormatter.format(info, s);
+		assertNotNull(out);
+		assertTrue("应包含 yyyy-MM-dd HH:mm:ss: " + out,
+				out.matches(".*\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2}.*"));
+	}
+
+	@Test
 	public void nullAuthorAndSubjectHandled() {
 		GitBlameSettings s = newSettings(true, true, false, true, DateFormatMode.ISO_DATE, "");
 		LineBlameInfo info = info("aaa", null, EPOCH, null);
