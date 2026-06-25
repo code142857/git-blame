@@ -5,14 +5,6 @@
     <vendor email="153335058@qq.com" url="https://gitee.com/youthdream">jinghong</vendor>
     <description><![CDATA[
         <p>在编辑器光标所在行末尾实时显示 Git Blame 信息（作者、时间、提交摘要），并在状态栏显示当前行 commit 的完整 hash。</p>
-        <p>零依赖直接调用本地 <code>git</code> 可执行文件，兼容所有基于 IntelliJ 平台的 IDE。</p>
-        <ul>
-            <li>行内 blame：仅在光标行末尾追加 <code>作者, 时间 • 提交摘要</code></li>
-            <li>状态栏 hash：显示光标行 commit 的短 hash，悬浮查看完整 hash</li>
-            <li>设置面板：开关、字段选择、日期格式、自定义格式模板</li>
-            <li>性能优化：文件级 blame 缓存、异步加载、增量解析、Dumb Mode 暂停</li>
-            <li>支持 git worktree 与 submodule</li>
-        </ul>
     ]]></description>
 
     <depends>com.intellij.modules.platform</depends>
