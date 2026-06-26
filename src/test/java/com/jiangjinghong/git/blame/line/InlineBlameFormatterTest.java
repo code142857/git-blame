@@ -106,7 +106,7 @@ public class InlineBlameFormatterTest {
 		LineBlameInfo info = info("aaa", "John", EPOCH, "Fix bug");
 		String out = InlineBlameFormatter.format(info, s);
 		assertNotNull(out);
-		assertTrue("相对时间应以 ago 结尾: " + out, out.trim().endsWith("ago"));
+		assertTrue("相对时间应以 '前' 结尾: " + out, out.trim().endsWith("前"));
 	}
 
 	@Test

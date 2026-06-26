@@ -46,10 +46,10 @@ public class GitBlameConfigurable implements Configurable {
 	@Nullable
 	@Override
 	public JComponent createComponent() {
-		enabledCheckBox = new JBCheckBox("Show inline Git Blame on the caret line");
-		showAuthorCheckBox = new JBCheckBox("Author");
-		showDateCheckBox = new JBCheckBox("Date");
-		showSubjectCheckBox = new JBCheckBox("Commit subject");
+		enabledCheckBox = new JBCheckBox("在光标行显示行内 Git Blame");
+		showAuthorCheckBox = new JBCheckBox("作者");
+		showDateCheckBox = new JBCheckBox("日期");
+		showSubjectCheckBox = new JBCheckBox("提交信息");
 		dateFormatCombo = new ComboBox<>(DateFormatMode.values());
 		dateFormatCombo.setRenderer(new DefaultListCellRenderer() {
 			@Override
@@ -86,14 +86,14 @@ public class GitBlameConfigurable implements Configurable {
 		fieldsPanel.add(showSubjectCheckBox);
 
 		JBLabel hintLabel = new JBLabel(
-				"Placeholders: {author} {date} {subject}  —  non-empty template overrides the fields above.");
+				"占位符：{author} {date} {subject}  —  填写模板后将覆盖上方字段选择。");
 		hintLabel.setCopyable(false);
 
 		return FormBuilder.createFormBuilder()
 				.addComponent(enabledCheckBox)
-				.addLabeledComponent("Fields to show:", fieldsPanel)
-				.addLabeledComponent("Date format:", dateFormatCombo)
-				.addLabeledComponent("Format template:", formatTemplateField)
+				.addLabeledComponent("显示字段：", fieldsPanel)
+				.addLabeledComponent("日期格式：", dateFormatCombo)
+				.addLabeledComponent("格式模板：", formatTemplateField)
 				.addComponent(hintLabel)
 				.addComponentFillVertically(new JPanel(), 0)
 				.getPanel();
@@ -123,7 +123,7 @@ public class GitBlameConfigurable implements Configurable {
 			}
 			if (!unknown.isEmpty()) {
 				throw new ConfigurationException(
-						"Unknown template placeholders: " + unknown + ". Allowed: {author}, {date}, {subject}.");
+						"未知的模板占位符：" + unknown + "。允许的占位符：{author}、{date}、{subject}。");
 			}
 		}
 		GitBlameSettings.State state = GitBlameSettings.getInstance().getState();

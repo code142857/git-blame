@@ -13,7 +13,7 @@ import java.time.format.DateTimeFormatter;
 public enum DateFormatMode {
 
 	/** 相对时间，如 "3 days ago" */
-	RELATIVE("Relative (e.g. 3 days ago)"),
+	RELATIVE("相对时间（如 3 天前）"),
 	/** 仅日期 */
 	ISO_DATE("yyyy-MM-dd"),
 	/** 日期 + 时分 */
@@ -67,33 +67,33 @@ public enum DateFormatMode {
 		Duration d = Duration.between(then, Instant.now());
 		long sec = d.getSeconds();
 		if (sec < 0) {
-			return "in the future";
+			return "未来";
 		}
 		if (sec < 60) {
-			return sec + "s ago";
+			return sec + "秒前";
 		}
 		long min = sec / 60;
 		if (min < 60) {
-			return min + "m ago";
+			return min + "分钟前";
 		}
 		long hour = min / 60;
 		if (hour < 24) {
-			return hour + "h ago";
+			return hour + "小时前";
 		}
 		long day = hour / 24;
 		if (day < 7) {
-			return day + "d ago";
+			return day + "天前";
 		}
 		long week = day / 7;
 		if (week < 5) {
-			return week + "w ago";
+			return week + "周前";
 		}
 		long month = day / 30;
 		if (month < 12) {
-			return month + "mo ago";
+			return month + "个月前";
 		}
 		long year = day / 365;
-		return year + "y ago";
+		return year + "年前";
 	}
 
 	@NotNull
