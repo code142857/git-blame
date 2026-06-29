@@ -1,5 +1,17 @@
 <!-- Keep a Changelog guide -> https://keepachangelog.com -->
 
+## [Unreleased]
+
+### Added
+
+- 状态栏短 hash 可点击：点击弹出当前行 commit 的完整详情（完整 hash、作者、时间、完整 commit message），message body 通过 `git show -s --format=%B <hash>` 后台拉取。
+- 新增 `CommitDetailFormatter`（commit 详情多行文本格式化，纯函数）及单测。
+
+### Changed
+
+- `GitBlameWidget` 由 `TextPresentation` 改造为 `CustomStatusBarWidget`，提供可点击的自定义组件（`JBLabel`）。
+- `GitBlameService` 新增 `fetchCommitMessage`：后台执行 `git show -s --format=%B <hash>` 拉取完整 message，EDT 回调。
+
 ## [1.0.0] - 2026-06-25
 
 ### Added

@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
 /**
  * 项目级 blame 服务：持有文件级 blame 缓存、git 仓库状态推导与异步加载逻辑。
@@ -80,6 +81,24 @@ public class GitBlameService {
 			return null;
 		}
 		return fileBlame.getLine(lineIndex);
+	}
+
+	/**
+	 * 异步拉取某 commit 的完整 message body（{@code git show -s --format=%B}）。
+	 * 后台执行，{@code invokeLater} 在 EDT 回调；project 释放后不回调。
+	 *
+	 * @param file 用于定位 git 仓库根（与 blame 共用 {@link GitRootInfo} 缓存）
+	 */
+	public void fetchCommitMessage(@NotNull Project project, @NotNull VirtualFile file, @NotNull String hash,
+			@NotNull Consumer<String> callback) {
+		ApplicationManager.getApplication().executeOnPooledThread(() -> {
+			String message = readCommitMessage(file, hash);
+			ApplicationManager.getApplication().invokeLater(() -> {
+				if (!project.isDisposed()) {
+					callback.accept(message);
+				}
+			});
+		});
 	}
 
 	/**
@@ -214,6 +233,41 @@ public class GitBlameService {
 			}
 		}
 		return FileBlameData.empty(file.getModificationStamp(), repoState.stateKey);
+	}
+
+	@NotNull
+	private String readCommitMessage(@NotNull VirtualFile file, @NotNull String hash) {
+		GitRootInfo root = getGitRootInfo(file);
+		if (!root.isUnderGit() || root.repoRoot == null) {
+			return "";
+		}
+		try {
+			ProcessBuilder pb = new ProcessBuilder("git", "show", "-s", "--format=%B", hash);
+			pb.directory(new File(root.repoRoot));
+			pb.redirectErrorStream(true);
+			pb.environment().put("GIT_TERMINAL_PROMPT", "0");
+
+			Process process = pb.start();
+			StringBuilder sb = new StringBuilder();
+			try (BufferedReader reader = new BufferedReader(
+					new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+				String line;
+				while ((line = reader.readLine()) != null) {
+					if (sb.length() > 0) {
+						sb.append('\n');
+					}
+					sb.append(line);
+				}
+			}
+			process.waitFor();
+			return sb.toString().trim();
+		}
+		catch (Exception e) {
+			if (LOG.isDebugEnabled()) {
+				LOG.debug("git show failed for commit " + hash, e);
+			}
+			return "";
+		}
 	}
 
 	/**
