@@ -4,6 +4,8 @@ import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.event.CaretEvent;
 import com.intellij.openapi.editor.event.CaretListener;
+import com.intellij.openapi.editor.event.DocumentEvent;
+import com.intellij.openapi.editor.event.DocumentListener;
 import com.intellij.openapi.editor.event.EditorEventMulticaster;
 import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.project.Project;
@@ -49,6 +51,16 @@ public final class GitBlameWidget extends EditorBasedWidget implements CustomSta
 		}
 	};
 
+	private final DocumentListener documentListener = new DocumentListener() {
+		@Override
+		public void documentChanged(@NotNull DocumentEvent event) {
+			Editor editor = getEditor();
+			if (editor != null && editor.getDocument() == event.getDocument()) {
+				refresh();
+			}
+		}
+	};
+
 	private final JLabel label;
 
 	public GitBlameWidget(@NotNull Project project) {
@@ -80,6 +92,16 @@ public final class GitBlameWidget extends EditorBasedWidget implements CustomSta
 		super.install(statusBar);
 		EditorEventMulticaster multicaster = EditorFactory.getInstance().getEventMulticaster();
 		multicaster.addCaretListener(caretListener, this);
+		multicaster.addDocumentListener(documentListener, this);
+		Project project = getProject();
+		if (project != null) {
+			project.getMessageBus().connect(this).subscribe(GitBlameService.BLAME_UPDATE_TOPIC, file -> {
+				if (file.equals(currentFile())) {
+					refresh();
+				}
+			});
+		}
+		refresh();
 	}
 
 	@Override
@@ -170,7 +192,7 @@ public final class GitBlameWidget extends EditorBasedWidget implements CustomSta
 			return null;
 		}
 		int line = editor.getCaretModel().getLogicalPosition().line;
-		return GitBlameService.getInstance(project).getBlameInfo(project, file, line);
+		return GitBlameService.getInstance(project).getBlameInfo(project, file, editor.getDocument(), line);
 	}
 
 	@Nullable

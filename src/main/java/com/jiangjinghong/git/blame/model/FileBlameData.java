@@ -9,7 +9,7 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * 文件级 blame 数据（解析 {@code git blame --incremental} 的输出）。
  * <p>
- * 缓存有效性由 {@link #modificationStamp}（{@code VirtualFile#getModificationStamp}）
+ * 缓存有效性由 {@link #modificationStamp}（编辑器 {@code Document#getModificationStamp}）
  * 与 {@link #repoStateKey}（{@code HEAD} + ref 值）共同决定。
  * </p>
  */

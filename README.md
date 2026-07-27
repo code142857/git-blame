@@ -15,7 +15,7 @@
 - **可配置**：Settings → Tools → Git Blame 提供总开关、字段选择（author/date/subject）、日期格式（相对时间 / `yyyy-MM-dd` / `yyyy-MM-dd HH:mm`）、自定义格式模板（`{author}` `{date}` `{subject}`）。
 - **默认样式**：灰色斜体，与 IDE 主题协调；可通过 `EditorColorsScheme` 自定义 `GIT_INLINE_BLAME` 颜色。
 - **性能优化**：
-  - 文件级 blame 结果缓存（project 级 `GitBlameService`），文件未修改且 `HEAD` / ref 未变化时复用。
+  - 文件级 blame 结果缓存（project 级 `GitBlameService`），编辑器内容未修改且 `HEAD` / ref 未变化时复用。
   - 异步加载（`executeOnPooledThread`），不阻塞 EDT。
   - 增量解析 `git blame --incremental` 输出，commit 信息按 hash 复用。
   - Dumb Mode（索引重建）下自动暂停。
@@ -91,8 +91,8 @@ src/main/java/com/jiangjinghong/git/blame/
 2. 检查总开关；判断当前行是否为光标行；不是则直接返回 `null`。
 3. 前置条件检查：非 Dumb Mode、非目录、文件在 git 仓库下（由 `GitBlameService` 承担）。
 4. 查询文件级 blame 缓存：
-   - 缓存命中（文件未修改 + `HEAD`/ref 未变化）→ 直接取出该行 `LineBlameInfo`。
-   - 缓存未命中 → 调度后台任务执行 `git blame`，解析后写回缓存并触发重绘。
+   - 缓存命中（编辑器内容未修改 + `HEAD`/ref 未变化）→ 直接取出该行 `LineBlameInfo`。
+   - 缓存未命中 → 将编辑器当前文本传给后台 `git blame`，解析后写回缓存并触发重绘。
 5. 调用 `InlineBlameFormatter.format(info, GitBlameSettings)` 按 settings 拼接文本。
 6. 以灰色斜体 `TextAttributes` 包装为 `LineExtensionInfo` 返回。
 
@@ -101,20 +101,20 @@ src/main/java/com/jiangjinghong/git/blame/
 ### 调用的 git 命令
 
 ```bash
-git blame --incremental -l -t -w HEAD -- <relative-path>
+git blame --incremental -l -t --contents - HEAD -- <relative-path>
 ```
 
 - `--incremental`：增量输出，便于边读边解析。
 - `-l`：使用长 commit hash。
 - `-t`：时间戳为 Unix epoch（便于格式化）。
-- `-w`：忽略空白差异。
-- `HEAD`：仅对当前 HEAD 提交做 blame。
+- `--contents -`：从标准输入读取编辑器当前文本，因此未保存的修改也能正确参与行映射。
+- `HEAD`：以当前 HEAD 作为已提交内容的基线；Git 返回零 hash 的未提交行会被过滤，不显示 blame。
 
 ### 缓存与失效
 
 | 缓存           | key            | 失效条件                                           |
 |---------------|----------------|--------------------------------------------------|
-| `fileBlameCache` | 文件绝对路径 | `VirtualFile#getModificationStamp` 变化 或 git `HEAD`/ref 变化 |
+| `fileBlameCache` | 文件绝对路径 | `Document#getModificationStamp` 变化 或 git `HEAD`/ref 变化 |
 | `gitRootCache`   | 文件绝对路径 | 进程生命周期内不失效（git 仓库根目录不会移动）              |
 | `loadingFiles`   | 路径+stamp+ref | 一次加载完成后自动移除                              |
 
@@ -163,7 +163,7 @@ git blame --incremental -l -t -w HEAD -- <relative-path>
 
 ## 限制与已知问题
 
-- 仅对 `HEAD` 提交做 blame，不显示 working tree 中未提交修改的来源。
+- 修改或新增的未提交行不显示 blame；未修改行仍显示其在 `HEAD` 历史中的提交来源。
 - 状态栏 widget 在设置切换后不会即时显隐（widget 注册时机由平台决定）；行内 blame 会立即响应。
 - 颜色通过 IDE 的 Color Scheme 设置项 `GIT_INLINE_BLAME` 调整，未注册为可视化颜色设置项。
 

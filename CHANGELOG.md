@@ -11,6 +11,8 @@
 
 - `GitBlameWidget` 由 `TextPresentation` 改造为 `CustomStatusBarWidget`，提供可点击的自定义组件（`JBLabel`）。
 - `GitBlameService` 新增 `fetchCommitMessage`：后台执行 `git show -s --format=%B <hash>` 拉取完整 message，EDT 回调。
+- blame 以编辑器当前文本（包括未保存修改）为输入；修改或新增的未提交行不再错误显示上一提交的信息。
+- 文件级 blame 缓存改用 `Document#getModificationStamp` 失效，确保编辑发生后不会继续复用旧行映射。
 
 ## [1.0.0] - 2026-06-25
 

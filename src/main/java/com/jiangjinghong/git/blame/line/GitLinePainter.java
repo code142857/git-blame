@@ -53,7 +53,8 @@ public class GitLinePainter extends EditorLinePainter {
 			return null; // 非光标行，不显示
 		}
 
-		String blameText = GitBlameService.getInstance(project).getFormattedBlameLine(project, file, lineIndex);
+		String blameText = GitBlameService.getInstance(project)
+				.getFormattedBlameLine(project, file, editor.getDocument(), lineIndex);
 		if (blameText == null || blameText.isEmpty()) {
 			return null;
 		}

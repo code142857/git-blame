@@ -2,11 +2,15 @@ package com.jiangjinghong.git.blame;
 
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.diagnostic.Logger;
+import com.intellij.openapi.editor.Document;
+import com.intellij.openapi.fileEditor.FileDocumentManager;
 import com.intellij.openapi.fileEditor.FileEditorManager;
 import com.intellij.openapi.fileEditor.TextEditor;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
+import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
+import com.intellij.util.messages.Topic;
 import com.jiangjinghong.git.blame.line.InlineBlameFormatter;
 import com.jiangjinghong.git.blame.model.FileBlameData;
 import com.jiangjinghong.git.blame.model.GitRootInfo;
@@ -20,6 +24,8 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.HashMap;
@@ -39,12 +45,22 @@ public class GitBlameService {
 
 	private static final Logger LOG = Logger.getInstance(GitBlameService.class);
 
+	private static final String UNCOMMITTED_HASH = "0000000000000000000000000000000000000000";
+
+	public static final Topic<BlameUpdateListener> BLAME_UPDATE_TOPIC = Topic.create(
+			"Git blame data updated", BlameUpdateListener.class);
+
 	/** 文件级 git blame 输出缓存: filePath -> FileBlameData */
 	private final Map<String, FileBlameData> fileBlameCache = new ConcurrentHashMap<>();
 
 	private final Map<String, GitRootInfo> gitRootCache = new ConcurrentHashMap<>();
 
 	private final Set<String> loadingFiles = ConcurrentHashMap.newKeySet();
+
+	public interface BlameUpdateListener {
+
+		void blameUpdated(@NotNull VirtualFile file);
+	}
 
 	@NotNull
 	public static GitBlameService getInstance(@NotNull Project project) {
@@ -58,8 +74,9 @@ public class GitBlameService {
 	 * 缓存未命中时触发异步加载并返回 {@code null}；加载完成后重绘编辑器。
 	 */
 	@Nullable
-	public String getFormattedBlameLine(@NotNull Project project, @NotNull VirtualFile file, int lineIndex) {
-		FileBlameData fileBlame = getOrComputeFileBlame(project, file);
+	public String getFormattedBlameLine(@NotNull Project project, @NotNull VirtualFile file,
+			@NotNull Document document, int lineIndex) {
+		FileBlameData fileBlame = getOrComputeFileBlame(project, file, document);
 		if (fileBlame == null) {
 			return null;
 		}
@@ -75,8 +92,9 @@ public class GitBlameService {
 	 * 缓存未命中时触发异步加载并返回 {@code null}。
 	 */
 	@Nullable
-	public LineBlameInfo getBlameInfo(@NotNull Project project, @NotNull VirtualFile file, int lineIndex) {
-		FileBlameData fileBlame = getOrComputeFileBlame(project, file);
+	public LineBlameInfo getBlameInfo(@NotNull Project project, @NotNull VirtualFile file,
+			@NotNull Document document, int lineIndex) {
+		FileBlameData fileBlame = getOrComputeFileBlame(project, file, document);
 		if (fileBlame == null) {
 			return null;
 		}
@@ -135,7 +153,8 @@ public class GitBlameService {
 	// ========== Blame 数据获取 ==========
 
 	@Nullable
-	private FileBlameData getOrComputeFileBlame(@NotNull Project project, @NotNull VirtualFile file) {
+	private FileBlameData getOrComputeFileBlame(@NotNull Project project, @NotNull VirtualFile file,
+			@NotNull Document document) {
 		if (!shouldShow(project, file)) {
 			return null;
 		}
@@ -147,33 +166,38 @@ public class GitBlameService {
 		String filePath = file.getPath();
 		FileBlameData cached = fileBlameCache.get(filePath);
 
-		if (cached != null && cached.modificationStamp == file.getModificationStamp()
+		if (cached != null && cached.modificationStamp == document.getModificationStamp()
 				&& cached.repoStateKey.equals(repoState.stateKey)) {
 			return cached;
 		}
 
-		scheduleFileBlameLoad(project, file, repoState);
+		scheduleFileBlameLoad(project, file, document, repoState);
 		return null;
 	}
 
 	private void scheduleFileBlameLoad(@NotNull Project project, @NotNull VirtualFile file,
-			@NotNull RepoState repoState) {
+			@NotNull Document document, @NotNull RepoState repoState) {
 		String filePath = file.getPath();
-		String loadingKey = filePath + "\n" + file.getModificationStamp() + "\n" + repoState.stateKey;
+		long modificationStamp = document.getModificationStamp();
+		String documentContent = document.getImmutableCharSequence().toString();
+		String lineSeparator = FileDocumentManager.getInstance().getLineSeparator(file, project);
+		String content = lineSeparator != null && !"\n".equals(lineSeparator)
+				? StringUtil.convertLineSeparators(documentContent, lineSeparator)
+				: documentContent;
+		Charset charset = file.getCharset();
+		String loadingKey = filePath + "\n" + modificationStamp + "\n" + repoState.stateKey;
 		if (!loadingFiles.add(loadingKey)) {
 			return;
 		}
 
 		ApplicationManager.getApplication().executeOnPooledThread(() -> {
 			try {
-				FileBlameData blameData = computeFileBlame(project, file, repoState);
+				FileBlameData blameData = computeFileBlame(project, file, repoState, modificationStamp, content, charset);
 				RepoState currentState = getRepoState(file);
-				if (currentState != null && blameData.modificationStamp == file.getModificationStamp()
+				if (currentState != null && blameData.modificationStamp == document.getModificationStamp()
 						&& blameData.repoStateKey.equals(currentState.stateKey)) {
 					fileBlameCache.put(filePath, blameData);
-					if (!blameData.isEmpty()) {
-						repaintEditors(project, file);
-					}
+					repaintEditors(project, file);
 				}
 			}
 			finally {
@@ -192,27 +216,32 @@ public class GitBlameService {
 					textEditor.getEditor().getComponent().repaint();
 				}
 			}
+			project.getMessageBus().syncPublisher(BLAME_UPDATE_TOPIC).blameUpdated(file);
 		});
 	}
 
 	private FileBlameData computeFileBlame(@NotNull Project project, @NotNull VirtualFile file,
-			@NotNull RepoState repoState) {
+			@NotNull RepoState repoState, long modificationStamp, @NotNull String content, @NotNull Charset charset) {
 		String projectBase = project.getBasePath();
 		if (projectBase == null) {
-			return FileBlameData.empty(file.getModificationStamp(), repoState.stateKey);
+			return FileBlameData.empty(modificationStamp, repoState.stateKey);
 		}
 
 		String relativePath = file.getPath().substring(repoState.gitRootInfo.repoRoot.length() + 1);
 
 		try {
-			ProcessBuilder pb = new ProcessBuilder("git", "blame", "--incremental", "-l", "-t", "-w", "HEAD", "--",
-					relativePath);
+			ProcessBuilder pb = new ProcessBuilder("git", "blame", "--incremental", "-l", "-t",
+					"--contents", "-", "HEAD", "--", relativePath);
 			pb.directory(new File(repoState.gitRootInfo.repoRoot));
 			pb.redirectErrorStream(true);
 			pb.environment().put("GIT_TERMINAL_PROMPT", "0");
 
 			Process process = pb.start();
-			FileBlameData blameData = new FileBlameData(file.getModificationStamp(), repoState.stateKey);
+			try (OutputStreamWriter writer = new OutputStreamWriter(process.getOutputStream(), charset)) {
+				writer.write(content);
+			}
+
+			FileBlameData blameData = new FileBlameData(modificationStamp, repoState.stateKey);
 
 			try (BufferedReader reader = new BufferedReader(
 					new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
@@ -232,7 +261,7 @@ public class GitBlameService {
 				LOG.debug("git blame failed for " + file.getPath(), e);
 			}
 		}
-		return FileBlameData.empty(file.getModificationStamp(), repoState.stateKey);
+		return FileBlameData.empty(modificationStamp, repoState.stateKey);
 	}
 
 	@NotNull
@@ -293,6 +322,11 @@ public class GitBlameService {
 				String[] parts = line.split("\\s+");
 				int finalLine = Integer.parseInt(parts[2]) - 1; // 转为 0-based
 				int lineCount = parts.length > 3 ? Integer.parseInt(parts[3]) : 1;
+
+				if (UNCOMMITTED_HASH.equals(hash)) {
+					currentInfo = null;
+					continue;
+				}
 
 				currentInfo = commitCache.computeIfAbsent(hash, ignored -> {
 					LineBlameInfo info = new LineBlameInfo();

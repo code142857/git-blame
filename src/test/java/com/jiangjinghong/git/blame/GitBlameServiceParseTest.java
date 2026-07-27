@@ -96,6 +96,34 @@ public class GitBlameServiceParseTest {
 	}
 
 	@Test
+	public void uncommittedLinesAreNotMappedToPreviousCommit() throws Exception {
+		String output = String.join("\n",
+				HASH_A + " 1 1 1",
+				"author John Doe",
+				"author-time 1700000000",
+				"summary Existing line",
+				"0000000000000000000000000000000000000000 2 2 2",
+				"author External file (--contents)",
+				"author-time 1710000000",
+				"summary Version from standard input",
+				HASH_B + " 4 4 1",
+				"author Jane Smith",
+				"author-time 1720000000",
+				"summary Another existing line",
+				"");
+
+		FileBlameData data = new FileBlameData(1L, "key");
+		try (BufferedReader reader = new BufferedReader(new StringReader(output))) {
+			GitBlameService.parseIncrementalBlame(reader, data);
+		}
+
+		assertEquals(HASH_A, data.getLine(0).hash);
+		assertNull("修改或新增的行不应显示旧提交信息", data.getLine(1));
+		assertNull("连续的未提交行都不应显示 blame", data.getLine(2));
+		assertEquals(HASH_B, data.getLine(3).hash);
+	}
+
+	@Test
 	public void isHexHashValidates40HexChars() {
 		assertEquals(true, GitBlameService.isHexHash("1111111111111111111111111111111111111111"));
 		assertEquals(false, GitBlameService.isHexHash("short"));
