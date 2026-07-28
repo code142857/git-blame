@@ -14,6 +14,10 @@
 - blame 以编辑器当前文本（包括未保存修改）为输入；修改或新增的未提交行不再错误显示上一提交的信息。
 - 文件级 blame 缓存改用 `Document#getModificationStamp` 失效，确保编辑发生后不会继续复用旧行映射。
 
+### Fixed
+
+- 状态栏监听文档变化时延后并合并刷新，避免 IDEA 在重构等 bulk update 期间读取光标位置而抛出 `UnexpectedBulkUpdateStateException`。
+
 ## [1.0.0] - 2026-06-25
 
 ### Added

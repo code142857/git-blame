@@ -1,5 +1,7 @@
 package com.jiangjinghong.git.blame.widget;
 
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.editor.Document;
 import com.intellij.openapi.editor.Editor;
 import com.intellij.openapi.editor.EditorFactory;
 import com.intellij.openapi.editor.event.CaretEvent;
@@ -27,6 +29,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 状态栏 widget：显示光标行 commit 的短 hash。点击弹出 commit 详情（{@link CommitDetailPopup}）。
@@ -56,10 +59,12 @@ public final class GitBlameWidget extends EditorBasedWidget implements CustomSta
 		public void documentChanged(@NotNull DocumentEvent event) {
 			Editor editor = getEditor();
 			if (editor != null && editor.getDocument() == event.getDocument()) {
-				refresh();
+				scheduleDocumentRefresh(event.getDocument());
 			}
 		}
 	};
+
+	private final AtomicBoolean documentRefreshScheduled = new AtomicBoolean();
 
 	private final JLabel label;
 
@@ -95,11 +100,15 @@ public final class GitBlameWidget extends EditorBasedWidget implements CustomSta
 		multicaster.addDocumentListener(documentListener, this);
 		Project project = getProject();
 		if (project != null) {
-			project.getMessageBus().connect(this).subscribe(GitBlameService.BLAME_UPDATE_TOPIC, file -> {
-				if (file.equals(currentFile())) {
-					refresh();
-				}
-			});
+			project.getMessageBus().connect(this).subscribe(GitBlameService.BLAME_UPDATE_TOPIC,
+					new GitBlameService.BlameUpdateListener() {
+						@Override
+						public void blameUpdated(@NotNull VirtualFile file) {
+							if (file.equals(currentFile())) {
+								refresh();
+							}
+						}
+					});
 		}
 		refresh();
 	}
@@ -136,6 +145,29 @@ public final class GitBlameWidget extends EditorBasedWidget implements CustomSta
 	}
 
 	// ========== 刷新 ==========
+
+	private void scheduleDocumentRefresh(@NotNull Document document) {
+		if (!documentRefreshScheduled.compareAndSet(false, true)) {
+			return;
+		}
+		ApplicationManager.getApplication().invokeLater(() -> {
+			documentRefreshScheduled.set(false);
+
+			Project project = getProject();
+			if (project == null || project.isDisposed()) {
+				return;
+			}
+			Editor editor = getEditor();
+			if (editor == null || editor.getDocument() != document) {
+				return;
+			}
+			if (document.isInBulkUpdate()) {
+				scheduleDocumentRefresh(document);
+				return;
+			}
+			refresh();
+		});
+	}
 
 	private void refresh() {
 		String shortHash = computeShortHash();
@@ -187,12 +219,16 @@ public final class GitBlameWidget extends EditorBasedWidget implements CustomSta
 		if (editor == null) {
 			return null;
 		}
-		VirtualFile file = FileDocumentManager.getInstance().getFile(editor.getDocument());
+		Document document = editor.getDocument();
+		if (document.isInBulkUpdate()) {
+			return null;
+		}
+		VirtualFile file = FileDocumentManager.getInstance().getFile(document);
 		if (file == null) {
 			return null;
 		}
 		int line = editor.getCaretModel().getLogicalPosition().line;
-		return GitBlameService.getInstance(project).getBlameInfo(project, file, editor.getDocument(), line);
+		return GitBlameService.getInstance(project).getBlameInfo(project, file, document, line);
 	}
 
 	@Nullable
